@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GPS + Sensor Tracker</title>
+
+  <!-- CSS Leaflet untuk tampilan peta -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body {
@@ -18,7 +20,7 @@
     }
 
     #map {
-      height: 85vh;
+      height: 85vh; /* 85% dari tinggi layar untuk peta */
       width: 100%;
     }
 
@@ -42,140 +44,150 @@
 
   <h2>🚗 GPS + Sensor Tracker</h2>
 
+  <!-- Tombol kontrol tracking -->
   <div class="controls">
     <button onclick="startTracking()">▶️ Mulai Tracking</button>
     <button onclick="stopTracking()">⏹ Hentikan Tracking</button>
     <button onclick="resetRoute()">🔄 Reset Jalur</button>
   </div>
 
+  <!-- Container untuk peta -->
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
+  <!-- Library Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Firebase & App Script -->
+  <!-- Firebase dan script utama aplikasi -->
   <script type="module">
+    // Import modul Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
     import { getDatabase, ref, onValue, get, push } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
+    // Konfigurasi Firebase
     const firebaseConfig = {
-      apiKey: "AIzaSyA38Kh8YFc5-aGCaueer1Af42fB09J2Cp0",
-      authDomain: "tugasgps-7382c.firebaseapp.com",
-      databaseURL: "https://tugasgps-7382c-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "tugasgps-7382c",
-      storageBucket: "tugasgps-7382c.appspot.com",
-      messagingSenderId: "220074053758",
-      appId: "1:220074053758:web:cc0e7274bec7b7c9f1c82f"
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_AUTH_DOMAIN",
+      databaseURL: "YOUR_DB_URL",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_BUCKET",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
     };
 
-    // Initialize Firebase
+    // Inisialisasi Firebase
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    const map = L.map("map").setView([-6.2, 106.8], 13);
-
+    // Inisialisasi peta
+    const map = L.map("map").setView([-8.79, 115.18], 16); // posisi awal dan zoom
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors"
     }).addTo(map);
 
-    let markerLayer = L.layerGroup().addTo(map); // Layer untuk marker
-    let polyline = L.polyline([], { color: "blue" }).addTo(map); // Jalur pelacakan
+    // Layer untuk marker dan polyline
+    let markerLayer = L.layerGroup().addTo(map);
+    let polyline = L.polyline([], { color: "blue", weight: 4 }).addTo(map);
+
+    // Variabel status
     let lastLatLng = null;
+    let lastMarkerLatLng = null;
     let tracking = false;
 
-    // Start tracking function
+    // Fungsi mulai tracking
     window.startTracking = () => {
       tracking = true;
       console.log("✅ Tracking dimulai...");
     };
 
-    // Stop tracking function
+    // Fungsi berhenti tracking
     window.stopTracking = () => {
       tracking = false;
       console.log("🛑 Tracking dihentikan.");
     };
 
-    // Reset route function
+    // Fungsi reset jalur dan marker
     window.resetRoute = () => {
-      polyline.setLatLngs([]);
+      polyline.setLatLngs([]); // hapus garis
       lastLatLng = null;
-      markerLayer.clearLayers(); // Clear all markers
+      lastMarkerLatLng = null;
+      markerLayer.clearLayers(); // hapus semua marker
       console.log("🔄 Jalur tracking direset.");
     };
 
+    // Referensi ke database Firebase
     const gpsRef = ref(db, "gps");
     const sensorRef = ref(db, "sensor");
     const riwayatRef = ref(db, "riwayat");
 
-    // Function to validate if the distance between points is greater than 50 meters
-    function isDistanceValid(latlng) {
-      if (lastLatLng) {
-        return latlng.distanceTo(lastLatLng) > 50; // Jarak lebih dari 50 meter
-      }
-      return true; // Pertama kali, dianggap valid
+    // Validasi koordinat latitude dan longitude
+    function isLatLngValid(lat, lon) {
+      return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
     }
 
-    // Listen to changes in the GPS data
+    // Cek apakah sudah bergerak cukup jauh (dalam meter)
+    function hasMovedEnough(from, to, threshold) {
+      return !from || map.distance(from, to) >= threshold;
+    }
+
+    // Fungsi utama: pantau perubahan data GPS dari Firebase
     onValue(gpsRef, async (snapshot) => {
-      if (!tracking) return;
+      if (!tracking) return; // Jika tidak sedang tracking, keluar
 
       const gps = snapshot.val();
-      if (!gps || typeof gps.latitude !== "number" || typeof gps.longitude !== "number") return;
+      if (!gps) return;
 
-      const lat = gps.latitude;
-      const lon = gps.longitude;
-
-      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+      // Ambil dan validasi data koordinat
+      const lat = Number(gps.latitude);
+      const lon = Number(gps.longitude);
+      if (!isLatLngValid(lat, lon)) return;
 
       const latlng = L.latLng(lat, lon);
 
-      // Validate if the distance is valid
-      if (!isDistanceValid(latlng)) return;
-
-      lastLatLng = latlng;
-
-      const waktu = gps.waktu ?? "N/A";
-      const arah = gps.arah ?? "N/A";
-      const kecepatan = gps.kecepatan ?? "N/A";
-
-      const sensorSnap = await get(sensorRef);
-      const sensor = sensorSnap.exists() ? sensorSnap.val() : {};
-      const suhu = sensor.suhu ?? "N/A";
-      const kelembaban = sensor.kelembaban ?? "N/A";
-
-      // Create a new marker and add it to the marker layer
-      const newMarker = L.marker(latlng).addTo(markerLayer);
-
-      // Add a popup to the marker
-      newMarker.bindPopup(`
-        <b>📍 Lokasi:</b> (${lat.toFixed(4)}, ${lon.toFixed(4)})<br>
-        ⏱️ <b>Waktu:</b> ${waktu}<br>
-        🌡️ <b>Suhu:</b> ${suhu} °C<br>
-        💧 <b>Kelembaban:</b> ${kelembaban} %<br>
-        🚗 <b>Kecepatan:</b> ${kecepatan} km/jam<br>
-        🧭 <b>Arah:</b> ${arah}°
-      `).openPopup();
-
-      // Add the point to the polyline (tracking path)
+      // Tambahkan koordinat ke garis jalur
       polyline.addLatLng(latlng);
-      map.setView(latlng, 16);
+      map.panTo(latlng); // Geser peta ke lokasi tanpa mengubah zoom
 
-      // Save the data to Firebase history
+      // Tampilkan marker hanya jika bergerak > 50 meter dari marker terakhir
+      if (hasMovedEnough(lastMarkerLatLng, latlng, 50)) {
+        lastMarkerLatLng = latlng;
+
+        // Ambil data sensor suhu & kelembaban
+        const sensorSnap = await get(sensorRef);
+        const sensor = sensorSnap.exists() ? sensorSnap.val() : {};
+
+        // Tampilkan popup marker
+        const waktu = gps.waktu ?? "N/A";
+        const arah = gps.arah ?? "N/A";
+        const kecepatan = gps.kecepatan ?? "N/A";
+        const suhu = sensor.suhu ?? "N/A";
+        const kelembaban = sensor.kelembaban ?? "N/A";
+
+        const newMarker = L.marker(latlng).addTo(markerLayer);
+        newMarker.bindPopup(`
+          <b>📍 Lokasi:</b> (${lat.toFixed(4)}, ${lon.toFixed(4)})<br>
+          ⏱️ <b>Waktu:</b> ${waktu}<br>
+          🌡️ <b>Suhu:</b> ${suhu} °C<br>
+          💧 <b>Kelembaban:</b> ${kelembaban} %<br>
+          🚗 <b>Kecepatan:</b> ${kecepatan} km/jam<br>
+          🧭 <b>Arah:</b> ${arah}°
+        `);
+      }
+
+      // Simpan ke node 'riwayat' di Firebase
       const dataRiwayat = {
         latitude: lat,
         longitude: lon,
-        waktu: waktu,
-        arah: arah,
-        kecepatan: kecepatan,
-        suhu: suhu,
-        kelembaban: kelembaban,
-        timestamp: Date.now() // For system timestamp
+        waktu: gps.waktu ?? "N/A",
+        arah: gps.arah ?? "N/A",
+        kecepatan: gps.kecepatan ?? "N/A",
+        suhu: sensor.suhu ?? "N/A",
+        kelembaban: sensor.kelembaban ?? "N/A",
+        timestamp: Date.now() // Waktu sistem
       };
 
-      // Push data to Firebase history
-      push(riwayatRef, dataRiwayat);
+      push(riwayatRef, dataRiwayat); // Simpan data baru ke Firebase
+      lastLatLng = latlng;
     });
   </script>
-
 </body>
 </html>
