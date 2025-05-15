@@ -1,102 +1,181 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GPS + Sensor Tracker</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    #map { height: 90vh; }
-    button { margin: 10px; padding: 10px; font-size: 16px; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+    }
+
+    h2 {
+      margin-top: 20px;
+    }
+
+    #map {
+      height: 85vh;
+      width: 100%;
+    }
+
+    .controls {
+      margin: 10px 0;
+    }
+
+    button {
+      margin: 0 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #f0f0f0;
+    }
   </style>
 </head>
 <body>
 
-<h2>🚗 GPS + Sensor Tracker</h2>
-<button onclick="startTracking()">▶️ Start Tracking</button>
-<button onclick="stopTracking()">⏹ Stop Tracking</button>
-<div id="map"></div>
+  <h2>🚗 GPS + Sensor Tracker</h2>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <div class="controls">
+    <button onclick="startTracking()">▶️ Mulai Tracking</button>
+    <button onclick="stopTracking()">⏹ Hentikan Tracking</button>
+    <button onclick="resetRoute()">🔄 Reset Jalur</button>
+  </div>
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-  import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+  <div id="map"></div>
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyA38Kh8YFc5-aGCaueer1Af42fB09J2Cp0",
-    authDomain: "tugasgps-7382c.firebaseapp.com",
-    databaseURL: "https://tugasgps-7382c-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "tugasgps-7382c",
-    storageBucket: "tugasgps-7382c.appspot.com",
-    messagingSenderId: "220074053758",
-    appId: "1:220074053758:web:cc0e7274bec7b7c9f1c82f"
-  };
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
+  <!-- Firebase & App Script -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+    import { getDatabase, ref, onValue, get, push } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
-  let map = L.map('map').setView([-6.2, 106.8], 13);
-  let marker = null;
-  let polyline = L.polyline([], { color: 'blue' }).addTo(map);
-  let tracking = false;
+    const firebaseConfig = {
+      apiKey: "AIzaSyA38Kh8YFc5-aGCaueer1Af42fB09J2Cp0",
+      authDomain: "tugasgps-7382c.firebaseapp.com",
+      databaseURL: "https://tugasgps-7382c-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "tugasgps-7382c",
+      storageBucket: "tugasgps-7382c.appspot.com",
+      messagingSenderId: "220074053758",
+      appId: "1:220074053758:web:cc0e7274bec7b7c9f1c82f"
+    };
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-  }).addTo(map);
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-  window.startTracking = () => {
-    tracking = true;
-    console.log("✅ Tracking dimulai...");
-  };
+    const map = L.map("map").setView([-6.2, 106.8], 13);
 
-  window.stopTracking = () => {
-    tracking = false;
-    console.log("🛑 Tracking dihentikan.");
-  };
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(map);
 
-  const gpsRef = ref(db, "gps");
-  const sensorRef = ref(db, "sensor");
+    let markerLayer = L.layerGroup().addTo(map); // Layer untuk marker
+    let polyline = L.polyline([], { color: "blue" }).addTo(map); // Jalur pelacakan
+    let lastLatLng = null;
+    let tracking = false;
 
-  onValue(gpsRef, async (snapshot) => {
-    if (!tracking) return;
+    // Start tracking function
+    window.startTracking = () => {
+      tracking = true;
+      console.log("✅ Tracking dimulai...");
+    };
 
-    const gps = snapshot.val();
-    if (!gps || !gps.latitude || !gps.longitude) return;
+    // Stop tracking function
+    window.stopTracking = () => {
+      tracking = false;
+      console.log("🛑 Tracking dihentikan.");
+    };
 
-    const sensorSnap = await get(sensorRef);
-    const sensor = sensorSnap.val() || {};
+    // Reset route function
+    window.resetRoute = () => {
+      polyline.setLatLngs([]);
+      lastLatLng = null;
+      markerLayer.clearLayers(); // Clear all markers
+      console.log("🔄 Jalur tracking direset.");
+    };
 
-    const lat = gps.latitude;
-    const lon = gps.longitude;
-    const waktu = gps.waktu ?? 'N/A';
-    const arah = gps.arah ?? 'N/A';
-    const kecepatan = gps.kecepatan ?? 'N/A';
+    const gpsRef = ref(db, "gps");
+    const sensorRef = ref(db, "sensor");
+    const riwayatRef = ref(db, "riwayat");
 
-    const suhu = sensor.suhu ?? 'N/A';
-    const kelembaban = sensor.kelembaban ?? 'N/A';
-
-    const latlng = [lat, lon];
-
-    if (marker) {
-      marker.setLatLng(latlng);
-    } else {
-      marker = L.marker(latlng).addTo(map);
+    // Function to validate if the distance between points is greater than 50 meters
+    function isDistanceValid(latlng) {
+      if (lastLatLng) {
+        return latlng.distanceTo(lastLatLng) > 50; // Jarak lebih dari 50 meter
+      }
+      return true; // Pertama kali, dianggap valid
     }
 
-    polyline.addLatLng(latlng);
-    map.setView(latlng, 16);
+    // Listen to changes in the GPS data
+    onValue(gpsRef, async (snapshot) => {
+      if (!tracking) return;
 
-    marker.bindPopup(`
-      <b>📍 Lokasi:</b> (${lat.toFixed(4)}, ${lon.toFixed(4)})<br>
-      ⏱️ Waktu: ${waktu}<br>
-      🌡️ Suhu: ${suhu} °C<br>
-      💧 Kelembaban: ${kelembaban} %<br>
-      🚗 Kecepatan: ${kecepatan} km/jam<br>
-      🧭 Arah: ${arah}°
-    `).openPopup();
-  });
-</script>
+      const gps = snapshot.val();
+      if (!gps || typeof gps.latitude !== "number" || typeof gps.longitude !== "number") return;
+
+      const lat = gps.latitude;
+      const lon = gps.longitude;
+
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+
+      const latlng = L.latLng(lat, lon);
+
+      // Validate if the distance is valid
+      if (!isDistanceValid(latlng)) return;
+
+      lastLatLng = latlng;
+
+      const waktu = gps.waktu ?? "N/A";
+      const arah = gps.arah ?? "N/A";
+      const kecepatan = gps.kecepatan ?? "N/A";
+
+      const sensorSnap = await get(sensorRef);
+      const sensor = sensorSnap.exists() ? sensorSnap.val() : {};
+      const suhu = sensor.suhu ?? "N/A";
+      const kelembaban = sensor.kelembaban ?? "N/A";
+
+      // Create a new marker and add it to the marker layer
+      const newMarker = L.marker(latlng).addTo(markerLayer);
+
+      // Add a popup to the marker
+      newMarker.bindPopup(`
+        <b>📍 Lokasi:</b> (${lat.toFixed(4)}, ${lon.toFixed(4)})<br>
+        ⏱️ <b>Waktu:</b> ${waktu}<br>
+        🌡️ <b>Suhu:</b> ${suhu} °C<br>
+        💧 <b>Kelembaban:</b> ${kelembaban} %<br>
+        🚗 <b>Kecepatan:</b> ${kecepatan} km/jam<br>
+        🧭 <b>Arah:</b> ${arah}°
+      `).openPopup();
+
+      // Add the point to the polyline (tracking path)
+      polyline.addLatLng(latlng);
+      map.setView(latlng, 16);
+
+      // Save the data to Firebase history
+      const dataRiwayat = {
+        latitude: lat,
+        longitude: lon,
+        waktu: waktu,
+        arah: arah,
+        kecepatan: kecepatan,
+        suhu: suhu,
+        kelembaban: kelembaban,
+        timestamp: Date.now() // For system timestamp
+      };
+
+      // Push data to Firebase history
+      push(riwayatRef, dataRiwayat);
+    });
+  </script>
 
 </body>
 </html>
