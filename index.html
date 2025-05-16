@@ -4,8 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GPS + Sensor Tracker</title>
-
-  <!-- CSS Leaflet untuk tampilan peta -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body {
@@ -20,7 +18,7 @@
     }
 
     #map {
-      height: 85vh; /* 85% dari tinggi layar untuk peta */
+      height: 85vh;
       width: 100%;
     }
 
@@ -44,118 +42,98 @@
 
   <h2>🚗 GPS + Sensor Tracker</h2>
 
-  <!-- Tombol kontrol tracking -->
   <div class="controls">
     <button onclick="startTracking()">▶️ Mulai Tracking</button>
     <button onclick="stopTracking()">⏹ Hentikan Tracking</button>
     <button onclick="resetRoute()">🔄 Reset Jalur</button>
   </div>
 
-  <!-- Container untuk peta -->
   <div id="map"></div>
 
-  <!-- Library Leaflet JS -->
+  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Firebase dan script utama aplikasi -->
   <script type="module">
-    // Import modul Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
     import { getDatabase, ref, onValue, get, push } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
-    // Konfigurasi Firebase
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_AUTH_DOMAIN",
-      databaseURL: "YOUR_DB_URL",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_BUCKET",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
+      apiKey: "AIzaSyA38Kh8YFc5-aGCaueer1Af42fB09J2Cp0",
+      authDomain: "tugasgps-7382c.firebaseapp.com",
+      databaseURL: "https://tugasgps-7382c-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "tugasgps-7382c",
+      storageBucket: "tugasgps-7382c.appspot.com",
+      messagingSenderId: "220074053758",
+      appId: "1:220074053758:web:cc0e7274bec7b7c9f1c82f"
     };
 
-    // Inisialisasi Firebase
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // Inisialisasi peta
-    const map = L.map("map").setView([-8.79, 115.18], 16); // posisi awal dan zoom
+    const map = L.map("map").setView([-8.79, 115.18], 16);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors"
     }).addTo(map);
 
-    // Layer untuk marker dan polyline
     let markerLayer = L.layerGroup().addTo(map);
     let polyline = L.polyline([], { color: "blue", weight: 4 }).addTo(map);
-
-    // Variabel status
     let lastLatLng = null;
     let lastMarkerLatLng = null;
     let tracking = false;
 
-    // Fungsi mulai tracking
     window.startTracking = () => {
       tracking = true;
       console.log("✅ Tracking dimulai...");
     };
 
-    // Fungsi berhenti tracking
     window.stopTracking = () => {
       tracking = false;
       console.log("🛑 Tracking dihentikan.");
     };
 
-    // Fungsi reset jalur dan marker
     window.resetRoute = () => {
-      polyline.setLatLngs([]); // hapus garis
+      polyline.setLatLngs([]);
       lastLatLng = null;
       lastMarkerLatLng = null;
-      markerLayer.clearLayers(); // hapus semua marker
+      markerLayer.clearLayers();
       console.log("🔄 Jalur tracking direset.");
     };
 
-    // Referensi ke database Firebase
     const gpsRef = ref(db, "gps");
     const sensorRef = ref(db, "sensor");
     const riwayatRef = ref(db, "riwayat");
 
-    // Validasi koordinat latitude dan longitude
     function isLatLngValid(lat, lon) {
       return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
     }
 
-    // Cek apakah sudah bergerak cukup jauh (dalam meter)
     function hasMovedEnough(from, to, threshold) {
       return !from || map.distance(from, to) >= threshold;
     }
 
-    // Fungsi utama: pantau perubahan data GPS dari Firebase
     onValue(gpsRef, async (snapshot) => {
-      if (!tracking) return; // Jika tidak sedang tracking, keluar
+      if (!tracking) return;
 
       const gps = snapshot.val();
       if (!gps) return;
 
-      // Ambil dan validasi data koordinat
       const lat = Number(gps.latitude);
       const lon = Number(gps.longitude);
       if (!isLatLngValid(lat, lon)) return;
 
       const latlng = L.latLng(lat, lon);
 
-      // Tambahkan koordinat ke garis jalur
+      // Selalu tambahkan ke polyline
       polyline.addLatLng(latlng);
-      map.panTo(latlng); // Geser peta ke lokasi tanpa mengubah zoom
+      map.panTo(latlng); // Pan ke posisi baru tanpa ubah zoom
 
-      // Tampilkan marker hanya jika bergerak > 50 meter dari marker terakhir
+      // Tampilkan marker hanya jika sudah bergerak lebih dari 50 meter dari marker terakhir
       if (hasMovedEnough(lastMarkerLatLng, latlng, 50)) {
         lastMarkerLatLng = latlng;
 
-        // Ambil data sensor suhu & kelembaban
         const sensorSnap = await get(sensorRef);
         const sensor = sensorSnap.exists() ? sensorSnap.val() : {};
 
-        // Tampilkan popup marker
         const waktu = gps.waktu ?? "N/A";
         const arah = gps.arah ?? "N/A";
         const kecepatan = gps.kecepatan ?? "N/A";
@@ -173,7 +151,7 @@
         `);
       }
 
-      // Simpan ke node 'riwayat' di Firebase
+      // Simpan data sebagai riwayat
       const dataRiwayat = {
         latitude: lat,
         longitude: lon,
@@ -182,10 +160,10 @@
         kecepatan: gps.kecepatan ?? "N/A",
         suhu: sensor.suhu ?? "N/A",
         kelembaban: sensor.kelembaban ?? "N/A",
-        timestamp: Date.now() // Waktu sistem
+        timestamp: Date.now()
       };
 
-      push(riwayatRef, dataRiwayat); // Simpan data baru ke Firebase
+      push(riwayatRef, dataRiwayat);
       lastLatLng = latlng;
     });
   </script>
