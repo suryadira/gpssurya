@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GPS + Sensor Tracker</title>
+
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -31,10 +34,13 @@
       padding: 10px 20px;
       font-size: 16px;
       cursor: pointer;
+      border: none;
+      background-color: #e0e0e0;
+      border-radius: 6px;
     }
 
     button:hover {
-      background-color: #f0f0f0;
+      background-color: #d0d0d0;
     }
   </style>
 </head>
@@ -53,10 +59,13 @@
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
+  <!-- Firebase + Tracking Script -->
   <script type="module">
+    // Firebase Module Import
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
     import { getDatabase, ref, onValue, get, push } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
 
+    // Konfigurasi Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyA38Kh8YFc5-aGCaueer1Af42fB09J2Cp0",
       authDomain: "tugasgps-7382c.firebaseapp.com",
@@ -67,20 +76,23 @@
       appId: "1:220074053758:web:cc0e7274bec7b7c9f1c82f"
     };
 
+    // Inisialisasi Firebase
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    // Inisialisasi Peta
     const map = L.map("map").setView([-8.79, 115.18], 16);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors"
     }).addTo(map);
 
-    let markerLayer = L.layerGroup().addTo(map);
-    let polyline = L.polyline([], { color: "blue", weight: 4 }).addTo(map);
+    const markerLayer = L.layerGroup().addTo(map);
+    const polyline = L.polyline([], { color: "blue", weight: 4 }).addTo(map);
+
     let lastLatLng = null;
-    let lastMarkerLatLng = null;
     let tracking = false;
 
+    // Fungsi Tombol Kontrol
     window.startTracking = () => {
       tracking = true;
       console.log("✅ Tracking dimulai...");
@@ -93,24 +105,24 @@
 
     window.resetRoute = () => {
       polyline.setLatLngs([]);
-      lastLatLng = null;
-      lastMarkerLatLng = null;
       markerLayer.clearLayers();
+      lastLatLng = null;
       console.log("🔄 Jalur tracking direset.");
     };
 
+    // Referensi Database
     const gpsRef = ref(db, "gps");
     const sensorRef = ref(db, "sensor");
     const riwayatRef = ref(db, "riwayat");
 
-    function isLatLngValid(lat, lon) {
-      return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    // Fungsi untuk validasi jarak antara titik
+    function isDistanceValid(newLatLng) {
+      if (!lastLatLng) return true;
+      const distance = map.distance(lastLatLng, newLatLng);
+      return distance > 0.5; // Minimum 0.5 meter
     }
 
-    function hasMovedEnough(from, to, threshold) {
-      return !from || map.distance(from, to) >= threshold;
-    }
-
+    // Listener untuk data GPS
     onValue(gpsRef, async (snapshot) => {
       if (!tracking) return;
 
@@ -119,52 +131,51 @@
 
       const lat = Number(gps.latitude);
       const lon = Number(gps.longitude);
-      if (!isLatLngValid(lat, lon)) return;
+      if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
 
       const latlng = L.latLng(lat, lon);
+      if (!isDistanceValid(latlng)) return;
+      lastLatLng = latlng;
 
-      // Selalu tambahkan ke polyline
-      polyline.addLatLng(latlng);
-      map.panTo(latlng); // Pan ke posisi baru tanpa ubah zoom
+      // Ambil data sensor
+      const sensorSnap = await get(sensorRef);
+      const sensor = sensorSnap.exists() ? sensorSnap.val() : {};
 
-      // Tampilkan marker hanya jika sudah bergerak lebih dari 50 meter dari marker terakhir
-      if (hasMovedEnough(lastMarkerLatLng, latlng, 50)) {
-        lastMarkerLatLng = latlng;
-
-        const sensorSnap = await get(sensorRef);
-        const sensor = sensorSnap.exists() ? sensorSnap.val() : {};
-
-        const waktu = gps.waktu ?? "N/A";
-        const arah = gps.arah ?? "N/A";
-        const kecepatan = gps.kecepatan ?? "N/A";
-        const suhu = sensor.suhu ?? "N/A";
-        const kelembaban = sensor.kelembaban ?? "N/A";
-
-        const newMarker = L.marker(latlng).addTo(markerLayer);
-        newMarker.bindPopup(`
-          <b>📍 Lokasi:</b> (${lat.toFixed(4)}, ${lon.toFixed(4)})<br>
-          ⏱️ <b>Waktu:</b> ${waktu}<br>
-          🌡️ <b>Suhu:</b> ${suhu} °C<br>
-          💧 <b>Kelembaban:</b> ${kelembaban} %<br>
-          🚗 <b>Kecepatan:</b> ${kecepatan} km/jam<br>
-          🧭 <b>Arah:</b> ${arah}°
-        `);
-      }
-
-      // Simpan data sebagai riwayat
       const dataRiwayat = {
         latitude: lat,
         longitude: lon,
         waktu: gps.waktu ?? "N/A",
         arah: gps.arah ?? "N/A",
+        kompas: gps.kompas ?? "N/A",
         kecepatan: gps.kecepatan ?? "N/A",
+        status: gps.status ?? "N/A",
         suhu: sensor.suhu ?? "N/A",
         kelembaban: sensor.kelembaban ?? "N/A",
+        gyro_x: sensor.gyro_x ?? "N/A",
+        gyro_y: sensor.gyro_y ?? "N/A",
+        gyro_z: sensor.gyro_z ?? "N/A",
         timestamp: Date.now()
       };
 
+      // Buat popup informasi
+      const popup = `
+        <b>📍 Lokasi:</b> (${lat.toFixed(4)}, ${lon.toFixed(4)})<br>
+        ⏱️ <b>Waktu:</b> ${dataRiwayat.waktu}<br>
+        🌡️ <b>Suhu:</b> ${dataRiwayat.suhu} °C<br>
+        💧 <b>Kelembaban:</b> ${dataRiwayat.kelembaban} %<br>
+        🚗 <b>Kecepatan:</b> ${dataRiwayat.kecepatan} km/jam<br>
+        🧭 <b>Arah:</b> ${dataRiwayat.arah}° (${dataRiwayat.kompas})<br>
+        🔐 <b>Status:</b> ${dataRiwayat.status}<br>
+        📐 <b>Gyro:</b> X=${dataRiwayat.gyro_x}, Y=${dataRiwayat.gyro_y}, Z=${dataRiwayat.gyro_z}
+      `;
+
+      // Tambah marker dan garis
+      L.marker(latlng).addTo(markerLayer).bindPopup(popup);
+      polyline.addLatLng(latlng);
+      map.panTo(latlng);
+
+      // Simpan ke database riwayat
       push(riwayatRef, dataRiwayat);
-      lastLatLng = latlng;
     });
   </script>
 </body>
